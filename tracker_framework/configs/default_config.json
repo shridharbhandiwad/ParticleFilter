@@ -1,0 +1,50 @@
+{
+    "tracker": {
+        "num_particles": 1000,
+        "resampling_strategy": "systematic",
+        "resampling_threshold": 0.5,
+        "gating_threshold": 9.21,
+        "confirmation_threshold": 3,
+        "termination_threshold": 5,
+        "state_type": "CV"
+    },
+    "motion_model": {
+        "type": "CV",
+        "cv_process_noise_std": 1.0,
+        "ca_process_noise_std": 2.0,
+        "ct_process_noise_std": 1.0,
+        "ct_turn_rate_noise_std": 0.1
+    },
+    "measurement_model": {
+        "range_std": 4.0,
+        "azimuth_std_deg": 0.3,
+        "elevation_std_deg": 0.3,
+        "range_rate_std": 1.0
+    },
+    "radar": {
+        "detection_probability": 0.95,
+        "clutter_density": 1e-6,
+        "snr_threshold": 10.0,
+        "weather_noise_factor": 1.0,
+        "scan_rate_hz": 10,
+        "range_limits": [100.0, 5000.0]
+    },
+    "simulation": {
+        "scenario": "single_straight",
+        "duration": 30.0,
+        "enable_clutter": true,
+        "enable_missed_detections": true
+    },
+    "evaluation": {
+        "association_threshold": 50.0,
+        "ospa_cutoff": 100.0,
+        "ospa_order": 2
+    },
+    "visualization": {
+        "enable_realtime": true,
+        "plot_particles": true,
+        "plot_measurements": true,
+        "save_plots": true,
+        "output_dir": "output"
+    }
+}
