@@ -746,7 +746,7 @@ else:
             """Update particle filter status from tracker."""
             if self.tracker:
                 stats = self.tracker.get_statistics()
-                self.particle_status['num_tracks'] = stats['confirmed_tracks']
+                self.particle_status['num_tracks'] = stats['total_tracks']
                 
                 # Calculate effective sample size (ESS)
                 total_ess = 0
