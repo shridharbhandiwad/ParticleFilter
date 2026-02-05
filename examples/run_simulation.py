@@ -285,6 +285,16 @@ def run_single_simulation(scenario_name: str, config_path: str,
         )
         print(f"  Saved: rmse_summary_{scenario_key}.png")
         
+        # X, Y, Z vs Time plot
+        fig = visualizer.plot_coordinates_vs_time(
+            ground_truth_history,
+            estimate_history,
+            measurement_history,
+            timestamps,
+            save_path=output_path / f"coordinates_vs_time_{scenario_key}.png"
+        )
+        print(f"  Saved: coordinates_vs_time_{scenario_key}.png")
+        
         print()
     
     print("Simulation complete!\n")

@@ -9,9 +9,12 @@ Provides:
 - Particle weight distribution
 - Effective sample size
 - 3D trajectory visualization
+- X, Y, Z coordinates vs time (GT, measured, filtered)
 """
 
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
@@ -444,6 +447,90 @@ class TrackingVisualizer:
         
         axes[-1].set_xlabel('Time [s]', fontsize=12)
         axes[0].set_title('Innovation Sequence', fontsize=14, fontweight='bold')
+        
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        
+        return fig
+    
+    def plot_coordinates_vs_time(self,
+                                ground_truth: List[List[State]],
+                                estimates: List[List[State]],
+                                measurements: List[List[Measurement]],
+                                timestamps: List[float],
+                                save_path: Optional[str] = None) -> Figure:
+        """
+        Plot x, y, z coordinates vs time for ground truth, measurements, and filtered estimates.
+        
+        Args:
+            ground_truth: Ground truth state history (per scan, per track)
+            estimates: Estimated state history (per scan, per track)
+            measurements: Measurement history (per scan)
+            timestamps: Time stamps [s]
+            save_path: Path to save figure
+            
+        Returns:
+            Matplotlib Figure
+        """
+        fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+        
+        coord_names = ['X', 'Y', 'Z']
+        coord_indices = [0, 1, 2]
+        
+        for coord_idx, ax, coord_name in zip(coord_indices, axes, coord_names):
+            # Plot ground truth
+            gt_plotted = False
+            for scan_idx, scan_gt in enumerate(ground_truth):
+                for state in scan_gt:
+                    t = timestamps[scan_idx] if scan_idx < len(timestamps) else scan_idx
+                    ax.plot(t, state.position[coord_idx], 'go', markersize=6, 
+                           alpha=0.7, label='Ground Truth' if not gt_plotted else '')
+                    gt_plotted = True
+            
+            # Plot measurements (convert from spherical to cartesian)
+            meas_plotted = False
+            for scan_idx, scan_meas in enumerate(measurements):
+                for meas in scan_meas:
+                    cart = meas.to_cartesian()
+                    t = timestamps[scan_idx] if scan_idx < len(timestamps) else scan_idx
+                    ax.plot(t, cart[coord_idx], 'kx', markersize=4, 
+                           alpha=0.3, label='Measurements' if not meas_plotted else '')
+                    meas_plotted = True
+            
+            # Plot filtered estimates
+            est_plotted = False
+            for scan_idx, scan_est in enumerate(estimates):
+                for state in scan_est:
+                    t = timestamps[scan_idx] if scan_idx < len(timestamps) else scan_idx
+                    ax.plot(t, state.position[coord_idx], 'r*', markersize=7, 
+                           alpha=0.8, label='Filtered' if not est_plotted else '')
+                    est_plotted = True
+            
+            # Connect filtered estimates with lines for each track
+            # Group estimates by track (assume consistent ordering within each scan)
+            if estimates:
+                num_tracks = max(len(scan_est) for scan_est in estimates)
+                for track_idx in range(num_tracks):
+                    track_times = []
+                    track_coords = []
+                    for scan_idx, scan_est in enumerate(estimates):
+                        if track_idx < len(scan_est):
+                            t = timestamps[scan_idx] if scan_idx < len(timestamps) else scan_idx
+                            track_times.append(t)
+                            track_coords.append(scan_est[track_idx].position[coord_idx])
+                    
+                    if track_times:
+                        ax.plot(track_times, track_coords, 'r--', linewidth=1.5, alpha=0.6)
+            
+            ax.set_ylabel(f'{coord_name} Position [m]', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc='best', fontsize=10)
+        
+        axes[-1].set_xlabel('Time [s]', fontsize=12)
+        axes[0].set_title('Position Coordinates vs Time (GT, Measured, Filtered)', 
+                         fontsize=14, fontweight='bold')
         
         plt.tight_layout()
         
