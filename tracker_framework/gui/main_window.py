@@ -76,6 +76,7 @@ else:
             self.ground_truth_history = []
             self.estimate_history = []
             self.measurement_history = []
+            self.timestamps = []
             self.evaluator = PerformanceEvaluator()
             
             # Timer for simulation
@@ -431,9 +432,25 @@ else:
             title.setAlignment(Qt.AlignCenter)
             layout.addWidget(title)
             
-            # Matplotlib canvases
+            # Create tab widget for different visualizations
+            viz_tabs = QTabWidget()
+            layout.addWidget(viz_tabs)
+            
+            # Tab 1: 2D Trajectory
+            traj_widget = QWidget()
+            traj_layout = QVBoxLayout()
+            traj_widget.setLayout(traj_layout)
             self.trajectory_canvas = FigureCanvas(Figure(figsize=(8, 6)))
-            layout.addWidget(self.trajectory_canvas)
+            traj_layout.addWidget(self.trajectory_canvas)
+            viz_tabs.addTab(traj_widget, "2D Trajectory")
+            
+            # Tab 2: X, Y, Z vs Time
+            xyz_widget = QWidget()
+            xyz_layout = QVBoxLayout()
+            xyz_widget.setLayout(xyz_layout)
+            self.xyz_canvas = FigureCanvas(Figure(figsize=(8, 8)))
+            xyz_layout.addWidget(self.xyz_canvas)
+            viz_tabs.addTab(xyz_widget, "X, Y, Z vs Time")
             
             # Metrics table
             metrics_label = QLabel("Performance Metrics")
@@ -539,6 +556,7 @@ else:
                 self.simulator.simulate_scenario(trajectories, scan_period)
             
             self.estimate_history = []
+            self.timestamps = []
             self.evaluator.reset()
             self.sim_step = 0
             self.total_steps = len(self.measurement_history)
@@ -596,6 +614,7 @@ else:
             self.ground_truth_history = []
             self.estimate_history = []
             self.measurement_history = []
+            self.timestamps = []
             self.evaluator.reset()
             self.start_button.setEnabled(True)
             self.stop_button.setEnabled(False)
@@ -614,9 +633,11 @@ else:
             }
             self._update_pf_status()
             
-            # Clear visualization
+            # Clear visualizations
             self.trajectory_canvas.figure.clear()
             self.trajectory_canvas.draw()
+            self.xyz_canvas.figure.clear()
+            self.xyz_canvas.draw()
             
             # Reset metrics table
             for i in range(6):
@@ -634,6 +655,7 @@ else:
             measurements = self.measurement_history[self.sim_step]
             ground_truth = self.ground_truth_history[self.sim_step]
             timestamp = self.sim_step / self.config['scan_rate_hz']
+            self.timestamps.append(timestamp)
             
             # Track
             start_time = time.time()
@@ -659,8 +681,9 @@ else:
             progress_pct = (self.sim_step / self.total_steps) * 100
             self.status_indicator.setText(f"🟢 Running... ({progress_pct:.0f}%)")
             
-            # Update visualization
+            # Update visualizations
             self._update_visualization()
+            self._update_xyz_visualization()
             self._update_metrics_table(frame_metrics)
             
             # Log every 10 steps to avoid clutter
@@ -730,6 +753,86 @@ else:
                 ax.legend(by_label.values(), by_label.keys(), loc='upper right', fontsize=9)
             
             self.trajectory_canvas.draw()
+        
+        def _update_xyz_visualization(self):
+            """Update X, Y, Z vs Time visualization."""
+            # Only update if we have data
+            if not self.estimate_history or not self.timestamps:
+                return
+            
+            # Clear and redraw
+            self.xyz_canvas.figure.clear()
+            
+            # Create three subplots
+            axes = [
+                self.xyz_canvas.figure.add_subplot(3, 1, 1),
+                self.xyz_canvas.figure.add_subplot(3, 1, 2),
+                self.xyz_canvas.figure.add_subplot(3, 1, 3)
+            ]
+            
+            coord_names = ['X', 'Y', 'Z']
+            coord_indices = [0, 1, 2]
+            
+            for coord_idx, ax, coord_name in zip(coord_indices, axes, coord_names):
+                # Plot ground truth
+                gt_plotted = False
+                for scan_idx in range(len(self.ground_truth_history[:self.sim_step+1])):
+                    scan_gt = self.ground_truth_history[scan_idx]
+                    for state in scan_gt:
+                        t = self.timestamps[scan_idx] if scan_idx < len(self.timestamps) else 0
+                        ax.plot(t, state.position[coord_idx], 'go', markersize=6, 
+                               alpha=0.7, label='Ground Truth' if not gt_plotted else '')
+                        gt_plotted = True
+                
+                # Plot measurements (convert from spherical to cartesian)
+                meas_plotted = False
+                for scan_idx in range(len(self.measurement_history[:self.sim_step+1])):
+                    scan_meas = self.measurement_history[scan_idx]
+                    for meas in scan_meas:
+                        cart = meas.to_cartesian()
+                        t = self.timestamps[scan_idx] if scan_idx < len(self.timestamps) else 0
+                        ax.plot(t, cart[coord_idx], 'kx', markersize=4, 
+                               alpha=0.3, label='Measurements' if not meas_plotted else '')
+                        meas_plotted = True
+                
+                # Plot filtered estimates
+                est_plotted = False
+                for scan_idx in range(len(self.estimate_history)):
+                    scan_est = self.estimate_history[scan_idx]
+                    for state in scan_est:
+                        t = self.timestamps[scan_idx] if scan_idx < len(self.timestamps) else 0
+                        ax.plot(t, state.position[coord_idx], 'r*', markersize=7, 
+                               alpha=0.8, label='Filtered' if not est_plotted else '')
+                        est_plotted = True
+                
+                # Connect filtered estimates with lines for each track
+                if self.estimate_history:
+                    num_tracks = max(len(scan_est) for scan_est in self.estimate_history if scan_est)
+                    for track_idx in range(num_tracks):
+                        track_times = []
+                        track_coords = []
+                        for scan_idx, scan_est in enumerate(self.estimate_history):
+                            if track_idx < len(scan_est):
+                                t = self.timestamps[scan_idx] if scan_idx < len(self.timestamps) else 0
+                                track_times.append(t)
+                                track_coords.append(scan_est[track_idx].position[coord_idx])
+                        
+                        if track_times:
+                            ax.plot(track_times, track_coords, 'r--', linewidth=1.5, alpha=0.6)
+                
+                ax.set_ylabel(f'{coord_name} [m]', fontsize=10)
+                ax.grid(True, alpha=0.3)
+                
+                # Only show legend on first subplot to avoid clutter
+                if coord_idx == 0:
+                    ax.legend(loc='best', fontsize=8)
+            
+            axes[-1].set_xlabel('Time [s]', fontsize=10)
+            axes[0].set_title(f'Position vs Time (Step {self.sim_step}/{self.total_steps})', 
+                             fontsize=12, fontweight='bold')
+            
+            self.xyz_canvas.figure.tight_layout()
+            self.xyz_canvas.draw()
         
         def _update_metrics_table(self, frame_metrics):
             """Update metrics table."""
