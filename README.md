@@ -88,11 +88,16 @@ This framework provides a complete solution for tracking maneuvering drones usin
 
 ### User Interface
 
-- ✅ **Interactive GUI** (PyQt5)
+- ✅ **Interactive GUI** (PyQt5) - **NEWLY ENHANCED!**
+  - **Visual Status Indicators**: Color-coded simulation state (Ready/Running/Stopped/Completed)
+  - **Progress Tracking**: Real-time progress bar and step counter
+  - **Particle Filter Status**: Live monitoring of particle count, active tracks, and effective sample size
+  - **Intuitive Controls**: Large styled buttons with helpful tooltips on every parameter
+  - **Quick Start Guide**: Built-in instructions for new users
+  - **Enhanced Visualization**: Real-time particle cloud display showing filter uncertainty
+  - **Smart Logging**: Informative status messages with reduced clutter
   - Real-time parameter adjustment
   - Scenario selection
-  - Start/Stop simulation control
-  - Live visualization
   - Configuration save/load
   - Performance metrics display
 
@@ -143,10 +148,25 @@ pip install PyQt5
 
 ## 🎮 Quick Start
 
-### Launch Interactive GUI
+### Launch Interactive GUI (Recommended for First-Time Users)
 ```bash
 python main.py --mode gui
 ```
+
+**New User-Friendly Features:**
+- Clear "Ready to Start" status indicator
+- Built-in Quick Start instructions in the interface
+- Tooltips on all controls explaining what each parameter does
+- Real-time particle filter status showing if the simulation is running
+- Progress bar tracking simulation completion
+- Particle cloud visualization showing filter confidence
+
+**How to Use:**
+1. Launch the GUI
+2. (Optional) Select a scenario from the "Scenario" tab
+3. Click the large green "▶ Start Simulation" button
+4. Watch the particle filter track targets in real-time!
+5. Monitor the "Particle Filter Status" panel to see the filter working
 
 ### Run Single Simulation
 ```bash
@@ -169,6 +189,7 @@ python main.py --mode batch --study-config tracker_framework/configs/parameter_s
 
 ```
 workspace/
+├── UI_IMPROVEMENTS_SUMMARY.md   # Detailed documentation of new UI features
 ├── tracker_framework/           # Main framework package
 │   ├── core/                   # Core data structures
 │   │   ├── state.py           # State and Measurement classes
