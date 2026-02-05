@@ -11,7 +11,7 @@ Implements:
 
 import numpy as np
 from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ..core.state import State, Measurement, StateType
 from ..models.motion_models import MotionModel, ConstantVelocityModel
 from ..models.measurement_models import RadarMeasurementModel
@@ -23,15 +23,22 @@ class Track:
     """
     Track representation for multi-target tracking.
     
+    Implements M/N track confirmation logic:
+    - Track is confirmed if it gets M hits out of last N scans
+    - Track is tentative until confirmed
+    - Track is deleted if quality drops or too many misses
+    
     Attributes:
         track_id: Unique track identifier
         filter: Particle filter for this track
         last_update_time: Time of last measurement update
-        age: Track age [number of scans]
-        hits: Number of measurement associations
+        age: Track age [number of scans since creation]
+        hits: Total number of measurement associations
         misses: Number of consecutive missed detections
         quality: Track quality score [0-1]
         state: Current state estimate
+        hit_history: Recent hit/miss history for M/N confirmation [1=hit, 0=miss]
+        confirmed: Whether track is confirmed
     """
     track_id: int
     filter: ParticleFilter
@@ -41,26 +48,68 @@ class Track:
     misses: int = 0
     quality: float = 1.0
     state: Optional[State] = None
+    hit_history: List[int] = field(default_factory=list)
+    confirmed: bool = False
     
     def update_quality(self):
         """Update track quality based on hit/miss ratio and filter quality."""
         hit_ratio = self.hits / max(self.age, 1)
         filter_quality = self.filter.track_quality
         
-        # Combined quality
+        # Combined quality (60% hit ratio, 40% filter quality)
         self.quality = 0.6 * hit_ratio + 0.4 * filter_quality
         
-        # Penalize consecutive misses
+        # Penalize consecutive misses exponentially
         if self.misses > 0:
             self.quality *= (0.85 ** self.misses)
     
-    def is_confirmed(self, min_hits: int = 3, min_age: int = 3) -> bool:
-        """Check if track is confirmed."""
-        return self.hits >= min_hits and self.age >= min_age
+    def is_confirmed(self, m_hits: int = 3, n_scans: int = 4) -> bool:
+        """
+        Check if track is confirmed using M/N logic.
+        
+        Track is confirmed if it has M hits in the last N scans.
+        
+        Args:
+            m_hits: Minimum hits required
+            n_scans: Window of scans to check
+            
+        Returns:
+            True if track is confirmed
+        """
+        # Once confirmed, stay confirmed
+        if self.confirmed:
+            return True
+        
+        # Need at least N scans to confirm
+        if self.age < n_scans:
+            return False
+        
+        # Check M/N criterion
+        recent_hits = sum(self.hit_history[-n_scans:])
+        if recent_hits >= m_hits:
+            self.confirmed = True
+            return True
+        
+        return False
     
     def is_terminated(self, max_misses: int = 5, min_quality: float = 0.2) -> bool:
-        """Check if track should be terminated."""
-        return self.misses >= max_misses or self.quality < min_quality
+        """
+        Check if track should be terminated.
+        
+        Confirmed tracks are more tolerant to misses.
+        
+        Args:
+            max_misses: Maximum consecutive misses
+            min_quality: Minimum quality threshold
+            
+        Returns:
+            True if track should be terminated
+        """
+        # Confirmed tracks can tolerate more misses
+        miss_threshold = max_misses * 2 if self.confirmed else max_misses
+        
+        # Terminate on excessive misses or low quality
+        return self.misses >= miss_threshold or self.quality < min_quality
 
 
 class MultiTargetTracker:
@@ -282,15 +331,20 @@ class MultiTargetTracker:
                 # Update track statistics
                 track.hits += 1
                 track.misses = 0
+                track.hit_history.append(1)  # Record hit
                 track.last_update_time = current_time
                 
             else:
                 # No measurement - missed detection
                 track.misses += 1
+                track.hit_history.append(0)  # Record miss
             
             # Update age and quality
             track.age += 1
             track.update_quality()
+            
+            # Check confirmation status
+            track.is_confirmed(self.confirmation_threshold, self.confirmation_threshold + 1)
             
             # Update state estimate
             track.state = track.filter.estimate()
@@ -335,6 +389,12 @@ class MultiTargetTracker:
         """
         Initiate new track from measurement.
         
+        Implements proper track initiation:
+        1. Create initial state from measurement
+        2. Initialize particle filter with high uncertainty
+        3. Immediately update particle filter with initiating measurement
+        4. Start track with hits=1 (since we have one measurement)
+        
         Args:
             measurement: Initial measurement
             current_time: Current time
@@ -342,7 +402,7 @@ class MultiTargetTracker:
         # Convert measurement to state
         position = measurement.to_cartesian()
         
-        # Initialize velocity to zero (will be estimated)
+        # Initialize velocity to zero (will be estimated over time)
         if self.state_type == StateType.CV:
             initial_vector = np.concatenate([position, np.zeros(3)])
         elif self.state_type == StateType.CA:
@@ -366,21 +426,37 @@ class MultiTargetTracker:
             state_type=self.state_type
         )
         
-        # Initialize with high uncertainty
+        # Initialize with high uncertainty (tentative track)
         state_dim = len(initial_vector)
         initial_cov = np.eye(state_dim)
-        initial_cov[0:3, 0:3] *= 500.0  # 20m position std
+        initial_cov[0:3, 0:3] *= 500.0  # 22.4m position std
         initial_cov[3:6, 3:6] *= 100.0  # 10 m/s velocity std
         
         pf.initialize(initial_state, initial_cov)
         
-        # Create track
+        # CRITICAL: Immediately update particle filter with initiating measurement
+        # This properly weights the particles based on the measurement
+        pf.update(measurement, detection_probability=0.95)
+        pf.resample()
+        
+        # Estimate state after update
+        updated_state = pf.estimate()
+        
+        # Create track with initial hit recorded
         track = Track(
             track_id=self.next_track_id,
             filter=pf,
             last_update_time=current_time,
-            state=initial_state
+            state=updated_state,
+            age=1,  # Track starts at age 1
+            hits=1,  # Track starts with 1 hit (the initiating measurement)
+            misses=0,
+            hit_history=[1],  # Record the initial hit
+            confirmed=False  # Not confirmed yet
         )
+        
+        # Update track quality
+        track.update_quality()
         
         self.tracks[self.next_track_id] = track
         self.next_track_id += 1
@@ -393,10 +469,23 @@ class MultiTargetTracker:
             self.total_tracks_terminated += 1
     
     def get_confirmed_tracks(self) -> List[Track]:
-        """Get list of confirmed tracks."""
+        """
+        Get list of confirmed tracks.
+        
+        Uses M/N confirmation logic:
+        - M = confirmation_threshold (default 3)
+        - N = confirmation_threshold + 1 (default 4)
+        - Track needs 3 hits out of last 4 scans to be confirmed
+        
+        Returns:
+            List of confirmed tracks
+        """
+        m_hits = self.confirmation_threshold
+        n_scans = self.confirmation_threshold + 1
+        
         return [
             track for track in self.tracks.values()
-            if track.is_confirmed(self.confirmation_threshold)
+            if track.is_confirmed(m_hits, n_scans)
         ]
     
     def get_track_states(self) -> List[State]:
