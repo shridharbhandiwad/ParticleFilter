@@ -807,7 +807,7 @@ else:
                 
                 # Connect filtered estimates with lines for each track
                 if self.estimate_history:
-                    num_tracks = max(len(scan_est) for scan_est in self.estimate_history if scan_est)
+                    num_tracks = max((len(scan_est) for scan_est in self.estimate_history if scan_est), default=0)
                     for track_idx in range(num_tracks):
                         track_times = []
                         track_coords = []
